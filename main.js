@@ -8,7 +8,9 @@ const camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 8, -
 camera.setTarget(new BABYLON.Vector3(0, 4, 0));
 camera.attachControl(canvas, true);
 camera.speed = 0;
-camera.angularSensibility = 3500;
+camera.angularSensibility = 1800;
+camera.inputs.attached.mouse.angularSensibilityX = 1800;
+camera.inputs.attached.mouse.angularSensibilityY = 1800;
 
 const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
 hemi.intensity = 1.45;
@@ -21,11 +23,12 @@ const stoneMat = new BABYLON.StandardMaterial("stoneMat", scene);
 stoneMat.diffuseColor = new BABYLON.Color3(0.55, 0.52, 0.75);
 stoneMat.emissiveColor = new BABYLON.Color3(0.05, 0.04, 0.12);
 
-BABYLON.MeshBuilder.CreateCylinder("platform", {
+const platform = BABYLON.MeshBuilder.CreateCylinder("platform", {
   diameter: 42,
   height: 2,
   tessellation: 9
-}, scene).material = stoneMat;
+}, scene);
+platform.material = stoneMat;
 
 const eye = BABYLON.MeshBuilder.CreateBox("Stone Eye", { width: 10, height: 7, depth: 2 }, scene);
 eye.position = new BABYLON.Vector3(0, 5, 10);
@@ -36,9 +39,13 @@ pupil.position = new BABYLON.Vector3(0, 5, 8.8);
 pupil.scaling.y = 0.35;
 pupil.material = glowMat;
 
-for (let i = 0; i < 80; i++) {
+for (let i = 0; i < 90; i++) {
   const star = BABYLON.MeshBuilder.CreateSphere("star", { diameter: Math.random() * 0.35 + 0.08 }, scene);
-  star.position = new BABYLON.Vector3((Math.random() - 0.5) * 150, Math.random() * 85 + 6, (Math.random() - 0.5) * 150);
+  star.position = new BABYLON.Vector3(
+    (Math.random() - 0.5) * 150,
+    Math.random() * 85 + 6,
+    (Math.random() - 0.5) * 150
+  );
   star.material = glowMat;
 }
 
@@ -48,7 +55,11 @@ for (let i = 0; i < 18; i++) {
     height: Math.random() * 16 + 8,
     depth: Math.random() * 2 + 1.3
   }, scene);
-  mono.position = new BABYLON.Vector3((Math.random() - 0.5) * 85, Math.random() * 24 + 8, Math.random() * 75 - 5);
+  mono.position = new BABYLON.Vector3(
+    (Math.random() - 0.5) * 85,
+    Math.random() * 24 + 8,
+    Math.random() * 75 - 5
+  );
   mono.rotation.x = Math.random() * 0.8;
   mono.rotation.y = Math.random() * Math.PI;
   mono.rotation.z = Math.random() * 0.8;
@@ -67,6 +78,9 @@ glyph.material = glowMat;
 let moveX = 0;
 let moveZ = 0;
 let sprinting = false;
+let velocity = new BABYLON.Vector3(0, 0, 0);
+let verticalVelocity = 0;
+let grounded = true;
 
 const base = document.getElementById("stickBase");
 const stick = document.getElementById("stick");
@@ -109,7 +123,7 @@ base.addEventListener("pointerdown", e => {
 });
 
 base.addEventListener("pointermove", e => {
-  if (e.pressure === 0) return;
+  if (e.buttons !== 1 && e.pointerType !== "touch") return;
   moveStick(e);
 });
 
@@ -120,18 +134,56 @@ sprintBtn.addEventListener("pointerdown", () => sprinting = true);
 sprintBtn.addEventListener("pointerup", () => sprinting = false);
 sprintBtn.addEventListener("pointercancel", () => sprinting = false);
 
-jumpBtn.addEventListener("pointerdown", () => {
-  camera.position.y += 3;
-});
+function jumpOrDash() {
+  if (grounded) {
+    verticalVelocity = 0.42;
+    grounded = false;
+    return;
+  }
+
+  const forward = camera.getDirection(BABYLON.Axis.Z);
+  forward.y = 0;
+  forward.normalize();
+
+  camera.position.addInPlace(forward.scale(8));
+}
+
+jumpBtn.addEventListener("pointerdown", jumpOrDash);
 
 scene.onBeforeRenderObservable.add(() => {
   const dt = engine.getDeltaTime() / 1000;
   glyph.rotation.z += dt;
 
-  const speed = sprinting ? 26 : 14;
+  const forward = camera.getDirection(BABYLON.Axis.Z);
+  const right = camera.getDirection(BABYLON.Axis.X);
 
-  camera.position.x += moveX * speed * dt;
-  camera.position.z += moveZ * speed * dt;
+  forward.y = 0;
+  right.y = 0;
+  forward.normalize();
+  right.normalize();
+
+  const targetSpeed = sprinting ? 28 : 15;
+  const desired = forward.scale(moveZ).add(right.scale(moveX));
+
+  if (desired.length() > 0) {
+    desired.normalize();
+    desired.scaleInPlace(targetSpeed);
+  }
+
+  velocity.x += (desired.x - velocity.x) * Math.min(1, dt * 8);
+  velocity.z += (desired.z - velocity.z) * Math.min(1, dt * 8);
+
+  camera.position.x += velocity.x * dt;
+  camera.position.z += velocity.z * dt;
+
+  verticalVelocity -= 1.25 * dt;
+  camera.position.y += verticalVelocity;
+
+  if (camera.position.y <= 8) {
+    camera.position.y = 8;
+    verticalVelocity = 0;
+    grounded = true;
+  }
 });
 
 engine.runRenderLoop(() => scene.render());
