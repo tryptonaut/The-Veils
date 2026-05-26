@@ -6,11 +6,7 @@ scene.clearColor = new BABYLON.Color4(0.015, 0.012, 0.04, 1);
 
 const camera = new BABYLON.UniversalCamera("camera", new BABYLON.Vector3(0, 8, -35), scene);
 camera.setTarget(new BABYLON.Vector3(0, 4, 0));
-camera.attachControl(canvas, true);
 camera.speed = 0;
-camera.angularSensibility = 1800;
-camera.inputs.attached.mouse.angularSensibilityX = 1800;
-camera.inputs.attached.mouse.angularSensibilityY = 1800;
 
 const hemi = new BABYLON.HemisphericLight("hemi", new BABYLON.Vector3(0, 1, 0), scene);
 hemi.intensity = 1.45;
@@ -78,7 +74,6 @@ glyph.material = glowMat;
 let moveX = 0;
 let moveZ = 0;
 let sprinting = false;
-let velocity = new BABYLON.Vector3(0, 0, 0);
 let verticalVelocity = 0;
 let grounded = true;
 
@@ -87,14 +82,19 @@ const stick = document.getElementById("stick");
 const jumpBtn = document.getElementById("jumpBtn");
 const sprintBtn = document.getElementById("sprintBtn");
 
+let joystickActive = false;
+let joystickPointer = null;
+
 function resetStick() {
+  joystickActive = false;
+  joystickPointer = null;
   moveX = 0;
   moveZ = 0;
   stick.style.left = "38px";
   stick.style.top = "38px";
 }
 
-function moveStick(e) {
+function updateStick(e) {
   const rect = base.getBoundingClientRect();
   const cx = rect.left + rect.width / 2;
   const cy = rect.top + rect.height / 2;
@@ -106,8 +106,8 @@ function moveStick(e) {
   const dist = Math.hypot(dx, dy);
 
   if (dist > max) {
-    dx = dx / dist * max;
-    dy = dy / dist * max;
+    dx = (dx / dist) * max;
+    dy = (dy / dist) * max;
   }
 
   stick.style.left = `${38 + dx}px`;
@@ -118,37 +118,77 @@ function moveStick(e) {
 }
 
 base.addEventListener("pointerdown", e => {
-  base.setPointerCapture(e.pointerId);
-  moveStick(e);
+  e.preventDefault();
+  joystickActive = true;
+  joystickPointer = e.pointerId;
+  updateStick(e);
+}, { passive: false });
+
+window.addEventListener("pointermove", e => {
+  if (!joystickActive || e.pointerId !== joystickPointer) return;
+  e.preventDefault();
+  updateStick(e);
+}, { passive: false });
+
+window.addEventListener("pointerup", e => {
+  if (e.pointerId === joystickPointer) resetStick();
 });
 
-base.addEventListener("pointermove", e => {
-  if (e.buttons !== 1 && e.pointerType !== "touch") return;
-  moveStick(e);
+window.addEventListener("pointercancel", resetStick);
+
+sprintBtn.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  sprinting = true;
+}, { passive: false });
+
+window.addEventListener("pointerup", () => {
+  sprinting = false;
 });
 
-base.addEventListener("pointerup", resetStick);
-base.addEventListener("pointercancel", resetStick);
-
-sprintBtn.addEventListener("pointerdown", () => sprinting = true);
-sprintBtn.addEventListener("pointerup", () => sprinting = false);
-sprintBtn.addEventListener("pointercancel", () => sprinting = false);
-
-function jumpOrDash() {
+jumpBtn.addEventListener("pointerdown", e => {
+  e.preventDefault();
   if (grounded) {
-    verticalVelocity = 0.42;
+    verticalVelocity = 0.32;
     grounded = false;
-    return;
   }
+}, { passive: false });
 
-  const forward = camera.getDirection(BABYLON.Axis.Z);
-  forward.y = 0;
-  forward.normalize();
+let looking = false;
+let lookPointer = null;
+let lastX = 0;
+let lastY = 0;
 
-  camera.position.addInPlace(forward.scale(8));
-}
+canvas.addEventListener("pointerdown", e => {
+  const target = e.target;
+  if (target.closest && target.closest("#mobileControls")) return;
 
-jumpBtn.addEventListener("pointerdown", jumpOrDash);
+  looking = true;
+  lookPointer = e.pointerId;
+  lastX = e.clientX;
+  lastY = e.clientY;
+}, { passive: false });
+
+window.addEventListener("pointermove", e => {
+  if (!looking || e.pointerId !== lookPointer) return;
+
+  const dx = e.clientX - lastX;
+  const dy = e.clientY - lastY;
+
+  lastX = e.clientX;
+  lastY = e.clientY;
+
+  camera.rotation.y += dx * 0.006;
+  camera.rotation.x += dy * 0.006;
+
+  camera.rotation.x = Math.max(-1.25, Math.min(1.25, camera.rotation.x));
+}, { passive: false });
+
+window.addEventListener("pointerup", e => {
+  if (e.pointerId === lookPointer) {
+    looking = false;
+    lookPointer = null;
+  }
+});
 
 scene.onBeforeRenderObservable.add(() => {
   const dt = engine.getDeltaTime() / 1000;
@@ -162,21 +202,16 @@ scene.onBeforeRenderObservable.add(() => {
   forward.normalize();
   right.normalize();
 
-  const targetSpeed = sprinting ? 28 : 15;
-  const desired = forward.scale(moveZ).add(right.scale(moveX));
+  const speed = sprinting ? 24 : 13;
 
-  if (desired.length() > 0) {
-    desired.normalize();
-    desired.scaleInPlace(targetSpeed);
+  const move = forward.scale(moveZ).add(right.scale(moveX));
+
+  if (move.length() > 0) {
+    move.normalize();
+    camera.position.addInPlace(move.scale(speed * dt));
   }
 
-  velocity.x += (desired.x - velocity.x) * Math.min(1, dt * 8);
-  velocity.z += (desired.z - velocity.z) * Math.min(1, dt * 8);
-
-  camera.position.x += velocity.x * dt;
-  camera.position.z += velocity.z * dt;
-
-  verticalVelocity -= 1.25 * dt;
+  verticalVelocity -= 0.9 * dt;
   camera.position.y += verticalVelocity;
 
   if (camera.position.y <= 8) {
