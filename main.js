@@ -51,11 +51,13 @@ for (let i = 0; i < 18; i++) {
     height: Math.random() * 16 + 8,
     depth: Math.random() * 2 + 1.3
   }, scene);
+
   mono.position = new BABYLON.Vector3(
     (Math.random() - 0.5) * 85,
     Math.random() * 24 + 8,
     Math.random() * 75 - 5
   );
+
   mono.rotation.x = Math.random() * 0.8;
   mono.rotation.y = Math.random() * Math.PI;
   mono.rotation.z = Math.random() * 0.8;
@@ -76,11 +78,13 @@ let moveZ = 0;
 let sprinting = false;
 let verticalVelocity = 0;
 let grounded = true;
+let aetherCooldown = false;
 
 const base = document.getElementById("stickBase");
 const stick = document.getElementById("stick");
 const jumpBtn = document.getElementById("jumpBtn");
 const sprintBtn = document.getElementById("sprintBtn");
+const aetherBtn = document.getElementById("aetherBtn");
 
 let joystickActive = false;
 let joystickPointer = null;
@@ -153,14 +157,41 @@ jumpBtn.addEventListener("pointerdown", e => {
   }
 }, { passive: false });
 
+function useAether() {
+  if (aetherCooldown) return;
+  aetherCooldown = true;
+
+  const forward = camera.getDirection(BABYLON.Axis.Z);
+  forward.y = 0;
+  forward.normalize();
+
+  camera.position.addInPlace(forward.scale(9));
+
+  glyph.scaling = new BABYLON.Vector3(1.8, 1.8, 1.8);
+  glowMat.emissiveColor = new BABYLON.Color3(0.8, 1, 1);
+
+  setTimeout(() => {
+    glyph.scaling = new BABYLON.Vector3(1, 1, 1);
+    glowMat.emissiveColor = new BABYLON.Color3(0.35, 0.55, 1);
+  }, 120);
+
+  setTimeout(() => {
+    aetherCooldown = false;
+  }, 500);
+}
+
+aetherBtn.addEventListener("pointerdown", e => {
+  e.preventDefault();
+  useAether();
+}, { passive: false });
+
 let looking = false;
 let lookPointer = null;
 let lastX = 0;
 let lastY = 0;
 
 canvas.addEventListener("pointerdown", e => {
-  const target = e.target;
-  if (target.closest && target.closest("#mobileControls")) return;
+  if (e.target.closest && e.target.closest("#mobileControls")) return;
 
   looking = true;
   lookPointer = e.pointerId;
@@ -203,7 +234,6 @@ scene.onBeforeRenderObservable.add(() => {
   right.normalize();
 
   const speed = sprinting ? 24 : 13;
-
   const move = forward.scale(moveZ).add(right.scale(moveX));
 
   if (move.length() > 0) {
